@@ -2,7 +2,6 @@ package edu.hm.karbaumer.lenz.android_kvm_hello_world
 
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
-import android.widget.TextView
 import edu.hm.karbaumer.lenz.android_kvm_hello_world.databinding.ActivityMainBinding
 
 class MainActivity : AppCompatActivity() {
@@ -16,14 +15,14 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         // Example of a call to a native method
-        binding.sampleText.text = stringFromJNI()
+        binding.vmOutput.text = kvmHelloWorld()
     }
 
     /**
      * A native method that is implemented by the 'android_kvm_hello_world' native library,
      * which is packaged with this application.
      */
-    external fun stringFromJNI(): String
+    external fun kvmHelloWorld(): String
 
     companion object {
         // Used to load the 'android_kvm_hello_world' library on application startup.
