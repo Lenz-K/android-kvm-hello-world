@@ -129,7 +129,6 @@ int kvm_test() {
     int ret;
     uint8_t *mem;
     size_t mmap_size;
-    __android_log_print(ANDROID_LOG_ERROR, TAG, "%08X\n", rom_code[0]);
 
     /* Get the KVM file descriptor */
     kvm = open("/dev/kvm", O_RDWR | O_CLOEXEC);
