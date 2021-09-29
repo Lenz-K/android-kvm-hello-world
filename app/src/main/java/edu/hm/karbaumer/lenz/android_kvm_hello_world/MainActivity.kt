@@ -16,6 +16,8 @@ class MainActivity : AppCompatActivity() {
 
         // Example of a call to a native method
         binding.vmOutput.text = kvmHelloWorld()
+
+        binding.cppOutput.text = getKvmHelloWorldLog()
     }
 
     /**
@@ -23,6 +25,8 @@ class MainActivity : AppCompatActivity() {
      * which is packaged with this application.
      */
     external fun kvmHelloWorld(): String
+
+    external fun getKvmHelloWorldLog(): String
 
     companion object {
         // Used to load the 'android_kvm_hello_world' library on application startup.

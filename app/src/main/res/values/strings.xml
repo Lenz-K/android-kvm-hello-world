@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Android KVM Hello World</string>
+    <string name="cpp_header">Program Output:</string>
+    <string name="vm_header">VM MMIO Output:</string>
 </resources>

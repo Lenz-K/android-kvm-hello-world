@@ -4,22 +4,28 @@
 #include <sys/ioctl.h>
 #include <linux/kvm.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <cstring>
 #include <sys/mman.h>
 #include <cstdarg>
 #include <cerrno>
-#include "bare-metal-arm64/memory.h"
+#include "bare-metal-aarch64/memory.h"
 
 #define MAX_VM_RUNS 20
-#define END_SIGNAL 0xaaaaaaaa
-#define TAG "kvm_test.cpp"
+#define MAX_STRING_LENGTH 100
+#define KVM_ARM_VCPU_PSCI_0_2 2
 
 using namespace std;
 
 int kvm, vmfd, vcpufd;
-u_int32_t slot_count = 0;
+u_int32_t memory_slot_count = 0;
 struct kvm_run *run;
+
+int mmio_buffer_index = 0;
 char mmio_buffer[MAX_VM_RUNS];
+
+string output_text;
+char buffer[MAX_STRING_LENGTH];
 
 /**
  * Execute an ioctl with the given arguments. Exit the program if there is an error.
@@ -38,7 +44,9 @@ int ioctl_exit_on_error(int file_descriptor, unsigned long request, string name,
 
     int ret = ioctl(file_descriptor, request, arg);
     if (ret < 0) {
-        __android_log_print(ANDROID_LOG_ERROR, TAG, "System call '%s' failed: %s\n", name.c_str(), strerror(errno));
+        snprintf(buffer, MAX_STRING_LENGTH, "System call '%s' failed: %s\n", name.c_str(),
+                 strerror(errno));
+        output_text += buffer;
         exit(ret);
     }
     return ret;
@@ -54,11 +62,14 @@ int ioctl_exit_on_error(int file_descriptor, unsigned long request, string name,
 int check_vm_extension(int extension, string name) {
     int ret = ioctl(vmfd, KVM_CHECK_EXTENSION, extension);
     if (ret < 0) {
-        __android_log_print(ANDROID_LOG_ERROR, TAG, "System call 'KVM_CHECK_EXTENSION' failed: %s\n", strerror(errno));
+        snprintf(buffer, MAX_STRING_LENGTH,
+                 "System call 'KVM_CHECK_EXTENSION' failed: %s\n", strerror(errno));
+        output_text += buffer;
         exit(ret);
     }
     if (ret == 0) {
-        __android_log_print(ANDROID_LOG_ERROR, TAG, "Extension '%s' not available\n", name.c_str());
+        snprintf(buffer, MAX_STRING_LENGTH, "Extension '%s' not available\n", name.c_str());
+        output_text += buffer;
         exit(-1);
     }
     return ret;
@@ -72,58 +83,87 @@ int check_vm_extension(int extension, string name) {
  * @return A pointer to the allocated memory.
  */
 uint8_t *allocate_memory_to_vm(size_t memory_len, uint64_t guest_addr, uint32_t flags = 0) {
-    void *void_mem = mmap(NULL, memory_len, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    void *void_mem = mmap(NULL, memory_len, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1,
+                          0);
     uint8_t *mem = static_cast<uint8_t *>(void_mem);
     if (!mem) {
-        __android_log_print(ANDROID_LOG_ERROR, TAG, "Error while allocating guest memory: %s\n", strerror(errno));
+        snprintf(buffer, MAX_STRING_LENGTH, "Error while allocating guest memory: %s\n",
+                 strerror(errno));
+        output_text += buffer;
         exit(-1);
     }
 
     struct kvm_userspace_memory_region region = {
-            .slot = slot_count,
+            .slot = memory_slot_count,
             .flags = flags,
             .guest_phys_addr = guest_addr,
             .memory_size = memory_len,
             .userspace_addr = (uint64_t) mem,
     };
-    slot_count++;
+    memory_slot_count++;
     ioctl_exit_on_error(vmfd, KVM_SET_USER_MEMORY_REGION, "KVM_SET_USER_MEMORY_REGION", &region);
     return mem;
 }
 
 /**
- * Handles a MMIO Exit from KVM_RUN.
- *
- * @param buffer_index The index to write to in the MMIO buffer.
+ * Handles a MMIO exit from KVM_RUN.
  */
-void mmio_exit_handler(int buffer_index, bool *done) {
-    __android_log_print(ANDROID_LOG_INFO, TAG, "Is write: %d\n", run->mmio.is_write);
+void mmio_exit_handler() {
+    snprintf(buffer, MAX_STRING_LENGTH, "Is Write: %d\n", run->mmio.is_write);
+    output_text += buffer;
 
     if (run->mmio.is_write) {
-        __android_log_print(ANDROID_LOG_INFO, TAG, "Length: %d\n", run->mmio.len);
+        snprintf(buffer, MAX_STRING_LENGTH, "Length: %d\n", run->mmio.len);
+        output_text += buffer;
         uint64_t data = 0;
         for (int j = 0; j < run->mmio.len; j++) {
-            data = data | run->mmio.data[j]<<8*j;
+            data |= run->mmio.data[j] << 8 * j;
         }
 
-        if ((uint32_t )data == END_SIGNAL) {
-            *done = true;
-        } else {
-            mmio_buffer[buffer_index] = data;
-        }
-        __android_log_print(ANDROID_LOG_INFO, TAG, "Guest wrote %08llX to 0x%08llX\n", data, run->mmio.phys_addr);
+        mmio_buffer[mmio_buffer_index] = data;
+        mmio_buffer_index++;
+        snprintf(buffer, MAX_STRING_LENGTH, "Guest wrote 0x%08llX to 0x%08llX\n", data,
+                 run->mmio.phys_addr);
+        output_text += buffer;
     }
 }
 
-void system_event_exit_handler() {
-    __android_log_print(ANDROID_LOG_INFO, TAG, "Type: %d\n", run->system_event.type);
+/**
+ * Logs the reason of a system event exit from KVM_RUN.
+ */
+void print_system_event_exit_reason() {
+    switch (run->system_event.type) {
+        case KVM_SYSTEM_EVENT_SHUTDOWN:
+            snprintf(buffer, MAX_STRING_LENGTH, "Cause: Shutdown\n");
+            output_text += buffer;
+            break;
+        case KVM_SYSTEM_EVENT_RESET:
+            snprintf(buffer, MAX_STRING_LENGTH, "Cause: Reset\n");
+            output_text += buffer;
+            break;
+        case KVM_SYSTEM_EVENT_CRASH:
+            snprintf(buffer, MAX_STRING_LENGTH, "Cause: Crash\n");
+            output_text += buffer;
+            break;
+    }
 }
 
 /**
- * This is a KVM test program for ARM64.
+ * Closes a file descriptor and therefore frees its resources.
+ */
+void close_fd(int fd) {
+    int ret = close(fd);
+    if (ret == -1) {
+        snprintf(buffer, MAX_STRING_LENGTH, "Error while closing file: %s\n", strerror(errno));
+        output_text += buffer;
+    }
+}
+
+/**
+ * This is a KVM test program for AArch64.
  * As a starting point, this KVM test program for x86 was used: https://lwn.net/Articles/658512/
  * It is explained here: https://lwn.net/Articles/658511/
- * To change the code from x86 to ARM64 the KVM API Documentation was used: https://www.kernel.org/doc/html/latest/virt/kvm/api.html
+ * To change the code from x86 to AArch64 the KVM API Documentation (https://www.kernel.org/doc/html/latest/virt/kvm/api.html) and the QEMU source code were used.
  */
 int kvm_test() {
     int ret;
@@ -133,26 +173,32 @@ int kvm_test() {
     /* Get the KVM file descriptor */
     kvm = open("/dev/kvm", O_RDWR | O_CLOEXEC);
     if (kvm < 0) {
-        __android_log_print(ANDROID_LOG_ERROR, TAG, "Cannot open '/dev/kvm': %s", strerror(errno));
+        snprintf(buffer, MAX_STRING_LENGTH, "Cannot open '/dev/kvm': %s", strerror(errno));
+        output_text += buffer;
         return kvm;
     }
 
     /* Make sure we have the stable version of the API */
     ret = ioctl(kvm, KVM_GET_API_VERSION, NULL);
     if (ret < 0) {
-        __android_log_print(ANDROID_LOG_ERROR, TAG, "System call 'KVM_GET_API_VERSION' failed: %s", strerror(errno));
+        snprintf(buffer, MAX_STRING_LENGTH, "System call 'KVM_GET_API_VERSION' failed: %s",
+                 strerror(errno));
+        output_text += buffer;
         return ret;
     }
     if (ret != 12) {
-        __android_log_print(ANDROID_LOG_ERROR, TAG, "expected KVM API Version 12 got: %d", ret);
+        snprintf(buffer, MAX_STRING_LENGTH, "expected KVM API Version 12 got: %d", ret);
+        output_text += buffer;
         return -1;
     }
 
     /* Create a VM and receive the VM file descriptor */
-    __android_log_print(ANDROID_LOG_INFO, TAG, "Creating VM\n");
+    snprintf(buffer, MAX_STRING_LENGTH, "Creating VM\n");
+    output_text += buffer;
     vmfd = ioctl_exit_on_error(kvm, KVM_CREATE_VM, "KVM_CREATE_VM", (unsigned long) 0);
 
-    __android_log_print(ANDROID_LOG_INFO, TAG, "Setting up memory\n");
+    snprintf(buffer, MAX_STRING_LENGTH, "Setting up memory\n");
+    output_text += buffer;
     /*
      * MEMORY MAP
      *
@@ -182,90 +228,129 @@ int kvm_test() {
     allocate_memory_to_vm(0x1000, 0x0401F000);
 
     /* MMIO Memory */
-    check_vm_extension(KVM_CAP_READONLY_MEM, "KVM_CAP_READONLY_MEM"); // This will cause a write to 0x10000000, to result in a KVM_EXIT_MMIO.
+    // This will cause a write to 0x10000000, to result in a KVM_EXIT_MMIO.
+    check_vm_extension(KVM_CAP_READONLY_MEM, "KVM_CAP_READONLY_MEM");
     allocate_memory_to_vm(0x1000, 0x10000000, KVM_MEM_READONLY);
 
     /* Create a virtual CPU and receive its file descriptor */
-    __android_log_print(ANDROID_LOG_INFO, TAG, "Creating VCPU\n");
+    snprintf(buffer, MAX_STRING_LENGTH, "Creating VCPU\n");
+    output_text += buffer;
     vcpufd = ioctl_exit_on_error(vmfd, KVM_CREATE_VCPU, "KVM_CREATE_VCPU", (unsigned long) 0);
 
-    /* Get CPU information for VCPU init*/
-    __android_log_print(ANDROID_LOG_INFO, TAG, "Retrieving physical CPU information\n");
+    /* Get CPU information for VCPU init */
+    snprintf(buffer, MAX_STRING_LENGTH, "Retrieving physical CPU information\n");
+    output_text += buffer;
     struct kvm_vcpu_init {
         __u32 target;
         __u32 features[7];
-    } preferred_target;
-    ioctl_exit_on_error(vmfd, KVM_ARM_PREFERRED_TARGET, "KVM_ARM_PREFERRED_TARGET", &preferred_target);
+    } preferred_target{};
+    ioctl_exit_on_error(vmfd, KVM_ARM_PREFERRED_TARGET, "KVM_ARM_PREFERRED_TARGET",
+                        &preferred_target);
+
+    /* Enable the PSCI v0.2 CPU feature, to be able to shut down the VM */
+    check_vm_extension(KVM_CAP_ARM_PSCI_0_2, "KVM_CAP_ARM_PSCI_0_2");
+    preferred_target.features[0] |= 1 << KVM_ARM_VCPU_PSCI_0_2;
 
     /* Initialize VCPU */
-    __android_log_print(ANDROID_LOG_INFO, TAG, "Initializing VCPU\n");
+    snprintf(buffer, MAX_STRING_LENGTH, "Initializing VCPU\n");
+    output_text += buffer;
     ioctl_exit_on_error(vcpufd, KVM_ARM_VCPU_INIT, "KVM_ARM_VCPU_INIT", &preferred_target);
 
     /* Map the shared kvm_run structure and following data. */
     ret = ioctl_exit_on_error(kvm, KVM_GET_VCPU_MMAP_SIZE, "KVM_GET_VCPU_MMAP_SIZE", NULL);
     mmap_size = ret;
-    if (mmap_size < sizeof(*run))
-        __android_log_print(ANDROID_LOG_ERROR, TAG, "KVM_GET_VCPU_MMAP_SIZE unexpectedly small");
+    if (mmap_size < sizeof(*run)) {
+        snprintf(buffer, MAX_STRING_LENGTH, "KVM_GET_VCPU_MMAP_SIZE unexpectedly small");
+        output_text += buffer;
+    }
     void *void_mem = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, vcpufd, 0);
     run = static_cast<kvm_run *>(void_mem);
-    if (!run)
-        __android_log_print(ANDROID_LOG_ERROR, TAG, "Error while mmap vcpu");
-
+    if (!run) {
+        snprintf(buffer, MAX_STRING_LENGTH, "Error while mmap vcpu");
+        output_text += buffer;
+    }
     /* Repeatedly run code and handle VM exits. */
-    __android_log_print(ANDROID_LOG_INFO, TAG, "Running code\n");
-    bool done = false;
-    for (int i = 0; i < MAX_VM_RUNS && !done; i++) {
-        __android_log_print(ANDROID_LOG_INFO, TAG, "\nLoop %d:\n", i+1);
+    snprintf(buffer, MAX_STRING_LENGTH, "Running code\n");
+    output_text += buffer;
+    bool shut_down = false;
+    for (int i = 0; i < MAX_VM_RUNS && !shut_down; i++) {
+        snprintf(buffer, MAX_STRING_LENGTH, "\nKVM_RUN Loop %d:\n", i + 1);
+        output_text += buffer;
         ret = ioctl(vcpufd, KVM_RUN, NULL);
         if (ret < 0) {
-            __android_log_print(ANDROID_LOG_ERROR, TAG, "System call 'KVM_RUN' failed: %d - %s\n", errno, strerror(errno));
-            __android_log_print(ANDROID_LOG_ERROR, TAG, "Error Numbers: EINTR=%d; ENOEXEC=%d; ENOSYS=%d; EPERM=%d\n", EINTR, ENOEXEC, ENOSYS, EPERM);
+            snprintf(buffer, MAX_STRING_LENGTH, "System call 'KVM_RUN' failed: %d - %s\n",
+                     errno, strerror(errno));
+            output_text += buffer;
+            snprintf(buffer, MAX_STRING_LENGTH,
+                     "Error Numbers: EINTR=%d; ENOEXEC=%d; ENOSYS=%d; EPERM=%d\n", EINTR,
+                     ENOEXEC, ENOSYS, EPERM);
+            output_text += buffer;
             return ret;
         }
 
         switch (run->exit_reason) {
             case KVM_EXIT_HLT:
-                __android_log_print(ANDROID_LOG_INFO, TAG, "KVM_EXIT_HLT\n");
-                done = true;
+                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_HLT\n");
+                output_text += buffer;
                 break;
             case KVM_EXIT_IO:
-                __android_log_print(ANDROID_LOG_INFO, TAG, "KVM_EXIT_IO\n");
+                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_IO\n");
+                output_text += buffer;
                 break;
             case KVM_EXIT_MMIO:
-                __android_log_print(ANDROID_LOG_INFO, TAG, "KVM_EXIT_MMIO\n");
-                mmio_exit_handler(i, &done);
+                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_MMIO\n");
+                output_text += buffer;
+                mmio_exit_handler();
                 break;
             case KVM_EXIT_SYSTEM_EVENT:
-                __android_log_print(ANDROID_LOG_INFO, TAG, "KVM_EXIT_SYSTEM_EVENT\n");
-                system_event_exit_handler();
+                // This happens when the VCPU has done a HVC based PSCI call.
+                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_SYSTEM_EVENT\n");
+                output_text += buffer;
+                print_system_event_exit_reason();
+                shut_down = true;
                 break;
             case KVM_EXIT_INTR:
-                __android_log_print(ANDROID_LOG_INFO, TAG, "KVM_EXIT_INTR\n");
+                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_INTR\n");
+                output_text += buffer;
                 break;
             case KVM_EXIT_FAIL_ENTRY:
-                __android_log_print(ANDROID_LOG_INFO, TAG, "KVM_EXIT_FAIL_ENTRY\n");
+                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_FAIL_ENTRY\n");
+                output_text += buffer;
                 break;
             case KVM_EXIT_INTERNAL_ERROR:
-                __android_log_print(ANDROID_LOG_INFO, TAG, "KVM_EXIT_INTERNAL_ERROR\n");
+                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_INTERNAL_ERROR\n");
+                output_text += buffer;
                 break;
             default:
-                __android_log_print(ANDROID_LOG_INFO, TAG, "KVM_EXIT other\n");
+                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: other\n");
+                output_text += buffer;
         }
     }
+
+    close_fd(vcpufd);
+    close_fd(vmfd);
+    close_fd(kvm);
 
     return 0;
 }
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_edu_hm_karbaumer_lenz_android_1kvm_1hello_1world_MainActivity_kvmHelloWorld(
-        JNIEnv* env,
+        JNIEnv *env,
         jobject /* this */) {
 
     kvm_test();
 
     string text;
-    for(int i = 0; mmio_buffer[i] != '\0'; i++) {
+    for (int i = 0; i < mmio_buffer_index; i++) {
         text += mmio_buffer[i];
     }
     return env->NewStringUTF(text.c_str());
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_edu_hm_karbaumer_lenz_android_1kvm_1hello_1world_MainActivity_getKvmHelloWorldLog(
+        JNIEnv *env,
+        jobject thiz) {
+    return env->NewStringUTF(output_text.c_str());
 }
