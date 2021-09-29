@@ -1,5 +1,4 @@
 #include <jni.h>
-#include <android/log.h>
 #include <string>
 #include <sys/ioctl.h>
 #include <linux/kvm.h>
@@ -289,14 +288,6 @@ int kvm_test() {
         }
 
         switch (run->exit_reason) {
-            case KVM_EXIT_HLT:
-                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_HLT\n");
-                output_text += buffer;
-                break;
-            case KVM_EXIT_IO:
-                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_IO\n");
-                output_text += buffer;
-                break;
             case KVM_EXIT_MMIO:
                 snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_MMIO\n");
                 output_text += buffer;
