@@ -3,10 +3,16 @@ package edu.hm.karbaumer.lenz.android_kvm_hello_world
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import edu.hm.karbaumer.lenz.android_kvm_hello_world.databinding.ActivityMainBinding
+import android.content.res.AssetManager
+
+
+
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+
+    private lateinit var mgr: AssetManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -14,8 +20,8 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Example of a call to a native method
-        binding.vmOutput.text = kvmHelloWorld()
+        mgr = resources.assets
+        binding.vmOutput.text = kvmHelloWorld(mgr)
 
         binding.cppOutput.text = getKvmHelloWorldLog()
     }
@@ -24,7 +30,7 @@ class MainActivity : AppCompatActivity() {
      * A native method that is implemented by the 'android_kvm_hello_world' native library,
      * which is packaged with this application.
      */
-    external fun kvmHelloWorld(): String
+    external fun kvmHelloWorld(mgr: AssetManager): String
 
     external fun getKvmHelloWorldLog(): String
 
