@@ -28,8 +28,8 @@
 
 // AAssetManager variables
 AAssetManager *mgr;
-AAssetDir* assetDir;
-AAsset* asset;
+AAssetDir *assetDir;
+AAsset *asset;
 
 // The current position in the ELF file
 int byte_index = 0;
@@ -51,11 +51,12 @@ int section = -1;
 int has_next = 0;
 
 /**
- * Read from the ELF file.
- * This keeps the current byte_index up to date.
- *
- * @param offset The offset to go to.
- */
+* Read from the ELF file.
+* This keeps the current byte_index up to date.
+*
+* @param mem The pointer where to store the read bytes
+* @param n_b The number of bytes to read
+*/
 void read(void *mem, int n_b) {
     int ret = AAsset_read(asset, mem, n_b);
     int read_b = ret;
@@ -89,31 +90,31 @@ void parse_program_header(uint64_t phoff, uint16_t phentsize) {
     vaddr = (uint64_t *) malloc(p_hdr_n * sizeof(uint64_t));
     filesz = (size_t *) malloc(p_hdr_n * sizeof(size_t));
     memsz = (size_t *) malloc(p_hdr_n * sizeof(size_t));
-    
+
     for (int i = 0; i < p_hdr_n; i++) {
         to(phoff + i * phentsize);
-        
+
         uint32_t p_type;
         read(&p_type, sizeof(p_type));
         do_load[i] = p_type == PT_LOAD;
-        
+
         if (do_load[i]) {
             to(phoff + i * phentsize + OFFSET_P_OFFSET);
-            
+
             uint64_t p_offset;
             read(&p_offset, sizeof(p_offset));
             offset[i] = p_offset;
-        
+
             uint64_t p_vaddr;
             read(&p_vaddr, sizeof(p_vaddr));
             vaddr[i] = p_vaddr;
-        
+
             to(phoff + i * phentsize + OFFSET_P_FILE_SIZE);
-            
+
             uint64_t p_filesz;
             read(&p_filesz, sizeof(p_filesz));
             filesz[i] = p_filesz;
-        
+
             uint64_t p_memsz;
             read(&p_memsz, sizeof(p_memsz));
             memsz[i] = p_memsz;
@@ -127,7 +128,7 @@ void parse_program_header(uint64_t phoff, uint16_t phentsize) {
 }
 
 bool elf_file_exists() {
-    const char* filename;
+    const char *filename;
     bool found;
     do {
         filename = AAssetDir_getNextFileName(assetDir);
@@ -201,7 +202,8 @@ int has_next_section_to_load() {
         if (has_next) {
             __android_log_print(ANDROID_LOG_INFO, TAG, "Section %d needs to be loaded", section);
         } else {
-            __android_log_print(ANDROID_LOG_INFO, TAG, "Section %d does not need to be loaded", section);
+            __android_log_print(ANDROID_LOG_INFO, TAG, "Section %d does not need to be loaded",
+                                section);
         }
     } while (!has_next && section + 1 < p_hdr_n);
 
@@ -211,7 +213,7 @@ int has_next_section_to_load() {
 int get_next_section_to_load(uint32_t **code, size_t *memory_size, uint64_t *vaddress) {
     if (!has_next) {
         __android_log_print(ANDROID_LOG_INFO, TAG, "No more section available. "
-               "Check availability with has_next_section_to_load() prior to calling this method.");
+                                                   "Check availability with has_next_section_to_load() prior to calling this method.");
         return -1;
     }
 
@@ -236,7 +238,7 @@ void close_elf() {
     free(vaddr);
     free(filesz);
     free(memsz);
-    
+
     for (int i = 0; i < p_hdr_n; i++) {
         free(code_blocks[i]);
     }
