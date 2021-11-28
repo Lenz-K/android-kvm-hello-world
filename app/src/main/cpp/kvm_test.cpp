@@ -194,12 +194,11 @@ int copy_elf_into_memory(AAssetManager *mgr) {
  * Handles a MMIO exit from KVM_RUN.
  */
 void mmio_exit_handler() {
-    snprintf(buffer, MAX_STRING_LENGTH, "Is Write: %d\n", run->mmio.is_write);
+    snprintf(buffer, MAX_STRING_LENGTH, "Is Write: %d - Address: 0x%08llX\n",
+             run->mmio.is_write, run->mmio.phys_addr);
     output_text += buffer;
 
     if (run->mmio.is_write) {
-        snprintf(buffer, MAX_STRING_LENGTH, "Length: %d\n", run->mmio.len);
-        output_text += buffer;
         uint64_t data = 0;
         for (int j = 0; j < run->mmio.len; j++) {
             data |= run->mmio.data[j] << 8 * j;
@@ -207,8 +206,8 @@ void mmio_exit_handler() {
 
         mmio_buffer[mmio_buffer_index] = data;
         mmio_buffer_index++;
-        snprintf(buffer, MAX_STRING_LENGTH, "Guest wrote 0x%08lX to 0x%08llX\n", data,
-                 run->mmio.phys_addr);
+        snprintf(buffer, MAX_STRING_LENGTH, "Guest wrote 0x%08lX (Length: %d)\n", data,
+                 run->mmio.len);
         output_text += buffer;
     }
 }
