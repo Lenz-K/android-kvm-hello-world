@@ -35,7 +35,7 @@ To edit the file, pull it to your machine:
 adb pull /etc/init/init-debug.rc
 ```
 
-Than add the following lines to the end of the file.
+Then add the following lines to the end of the file.
 ```
 on boot
     chmod a+rw /dev/kvm
@@ -45,4 +45,4 @@ Then push it back to the device.
 ```
 adb push init-debug.rc /etc/init/init-debug.rc
 ```
-On the next boot, the permissions should be changed automatically.
+On the next boot of the device, the permissions should be changed automatically.
