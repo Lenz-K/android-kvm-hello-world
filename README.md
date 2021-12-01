@@ -19,7 +19,7 @@ The app was tested on a Cortex-A72 (ARMv8-A) processor running Android 12.
 
 Changing the permissions of `/dev/kvm` requires root privileges on the Android device.
 First connect adb to the device.
-Instruction for different setups can be found [here](https://developer.android.com/studio/command-line/adb).
+Instructions for different setups can be found [here](https://developer.android.com/studio/command-line/adb).
 
 To change the permissions until the next boot, issue the following command:
 ```
@@ -29,7 +29,7 @@ adb shell chmod a+rw /dev/kvm
 To change the permissions on every boot, one can add the command to an init file of an Android device.
 There are usually several of these files and name and location can vary.
 Find more information on this [here](https://android.googlesource.com/platform/system/core/+/master/init/README.md).
-On the development device of this repo, the file was located at `/etc/init/init-debug.rc`.
+On the development device of this repository, the file was located at `/etc/init/init-debug.rc`.
 To edit the file, pull it to your machine:
 ```
 adb pull /etc/init/init-debug.rc
