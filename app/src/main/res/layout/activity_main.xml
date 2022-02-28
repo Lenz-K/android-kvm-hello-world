@@ -17,25 +17,17 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/vm_header"
-                style="@style/header"
+            <Button
+                android:id="@+id/button"
                 android:layout_marginStart="16dp"
                 android:layout_marginTop="16dp"
                 android:layout_marginEnd="16dp"
-                android:text="@string/vm_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:layout_constraintTop_toTopOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent" />
-
-            <TextView
-                android:id="@+id/vm_output"
-                style="@style/terminal"
-                android:layout_marginStart="16dp"
-                android:layout_marginTop="16dp"
-                android:layout_marginEnd="16dp"
-                android:text=""
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/vm_header" />
+                android:onClick="kvmRun"
+                android:text="@string/run" />
 
             <TextView
                 android:id="@+id/cpp_header"
@@ -45,7 +37,7 @@
                 android:layout_marginEnd="16dp"
                 android:text="@string/cpp_header"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/vm_output" />
+                app:layout_constraintTop_toBottomOf="@+id/button" />
 
             <TextView
                 android:id="@+id/cpp_output"

@@ -4,8 +4,7 @@ import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import edu.hm.karbaumer.lenz.android_kvm_hello_world.databinding.ActivityMainBinding
 import android.content.res.AssetManager
-
-
+import android.view.View
 
 
 class MainActivity : AppCompatActivity() {
@@ -21,8 +20,10 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         mgr = resources.assets
-        binding.vmOutput.text = kvmHelloWorld(mgr)
+        binding.cppOutput.text = kvmHelloWorld(mgr)
+    }
 
+    fun kvmRun(view: View) {
         binding.cppOutput.text = getKvmHelloWorldLog()
     }
 

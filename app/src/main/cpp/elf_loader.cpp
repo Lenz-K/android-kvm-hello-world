@@ -23,8 +23,8 @@
 #define TAG "HELLO_KVM"
 
 #define PATH "bin"
-#define FILENAME "hello_world.elf"
-#define URI "bin/hello_world.elf"
+#define FILENAME "tee.elf"
+#define URI "bin/tee.elf"
 
 // AAssetManager variables
 AAssetManager *mgr;

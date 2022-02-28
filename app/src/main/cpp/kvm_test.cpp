@@ -13,7 +13,7 @@
 
 #include "elf_loader.h"
 
-#define MAX_VM_RUNS 20
+#define MAX_VM_RUNS 100
 #define MAX_STRING_LENGTH 100
 #define KVM_ARM_VCPU_PSCI_0_2 2
 #define N_MEMORY_MAPPINGS 2
@@ -94,9 +94,8 @@ int check_vm_extension(int extension, string name) {
  * @param guest_addr The address of the memory in the guest.
  * @return A pointer to the allocated memory.
  */
-uint64_t *allocate_memory_to_vm(size_t memory_len, uint64_t guest_addr, uint32_t flags = 0) {
-    void *void_mem = mmap(NULL, memory_len, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1,
-                          0);
+static uint64_t *allocate_memory_to_vm_with_flags(size_t memory_size, uint64_t guest_addr, uint32_t flags) {
+    void *void_mem = mmap(NULL, memory_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     uint64_t *mem = static_cast<uint64_t *>(void_mem);
     if (!mem) {
         snprintf(buffer, MAX_STRING_LENGTH, "Error while allocating guest memory: %s\n",
@@ -109,12 +108,16 @@ uint64_t *allocate_memory_to_vm(size_t memory_len, uint64_t guest_addr, uint32_t
             .slot = memory_slot_count,
             .flags = flags,
             .guest_phys_addr = guest_addr,
-            .memory_size = memory_len,
+            .memory_size = memory_size,
             .userspace_addr = (uint64_t) mem,
     };
     memory_slot_count++;
     ioctl_exit_on_error(vmfd, KVM_SET_USER_MEMORY_REGION, "KVM_SET_USER_MEMORY_REGION", &region);
     return mem;
+}
+
+static uint64_t *allocate_memory_to_vm(size_t memory_size, uint64_t guest_addr) {
+    return allocate_memory_to_vm_with_flags(memory_size, guest_addr, 0);
 }
 
 /**
@@ -243,6 +246,53 @@ void close_fd(int fd) {
     }
 }
 
+int do_kvm_run() {
+    int ret = ioctl(vcpufd, KVM_RUN, NULL);
+    if (ret < 0) {
+        snprintf(buffer, MAX_STRING_LENGTH, "System call 'KVM_RUN' failed: %d - %s\n",
+                 errno, strerror(errno));
+        output_text += buffer;
+        snprintf(buffer, MAX_STRING_LENGTH,
+                 "Error Numbers: EINTR=%d; ENOEXEC=%d; ENOSYS=%d; EPERM=%d\n", EINTR,
+                 ENOEXEC, ENOSYS, EPERM);
+        output_text += buffer;
+        return ret;
+    }
+    snprintf(buffer, MAX_STRING_LENGTH, "\n");
+    output_text += buffer;
+
+    switch (run->exit_reason) {
+        case KVM_EXIT_MMIO:
+            snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_MMIO\n");
+            output_text += buffer;
+            mmio_exit_handler();
+            break;
+        case KVM_EXIT_SYSTEM_EVENT:
+            // This happens when the VCPU has done a HVC based PSCI call.
+            snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_SYSTEM_EVENT\n");
+            output_text += buffer;
+            print_system_event_exit_reason();
+            break;
+        case KVM_EXIT_INTR:
+            snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_INTR\n");
+            output_text += buffer;
+            break;
+        case KVM_EXIT_FAIL_ENTRY:
+            snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_FAIL_ENTRY\n");
+            output_text += buffer;
+            break;
+        case KVM_EXIT_INTERNAL_ERROR:
+            snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_INTERNAL_ERROR\n");
+            output_text += buffer;
+            break;
+        default:
+            snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: other\n");
+            output_text += buffer;
+    }
+
+    return ret;
+}
+
 /**
  * This is a KVM test program for AArch64.
  * As a starting point, this KVM test program for x86 was used: https://lwn.net/Articles/658512/
@@ -298,13 +348,13 @@ int kvm_test(AAssetManager *mgr) {
     check_vm_extension(KVM_CAP_USER_MEMORY, "KVM_CAP_USER_MEMORY");
     /* ROM Memory */
     memory_mappings[0].guest_phys_addr = 0x0;
-    memory_mappings[0].memory_size = MEMORY_BLOCK_SIZE;
+    memory_mappings[0].memory_size = 0xa00000;
     mem = allocate_memory_to_vm(memory_mappings[0].memory_size, memory_mappings[0].guest_phys_addr);
     memory_mappings[0].userspace_addr = mem;
 
     /* RAM Memory */
-    memory_mappings[1].guest_phys_addr = 0x04000000;
-    memory_mappings[1].memory_size = MEMORY_BLOCK_SIZE;
+    memory_mappings[1].guest_phys_addr = 0x0e100000;
+    memory_mappings[1].memory_size = 0xf00000;
     mem = allocate_memory_to_vm(memory_mappings[1].memory_size, memory_mappings[1].guest_phys_addr);
     memory_mappings[1].userspace_addr = mem;
 
@@ -312,14 +362,12 @@ int kvm_test(AAssetManager *mgr) {
     if (ret < 0)
         return ret;
 
-    /* Heap Memory */
-    allocate_memory_to_vm(MEMORY_BLOCK_SIZE, 0x04010000);
-    /* Stack Memory */
-    allocate_memory_to_vm(MEMORY_BLOCK_SIZE, 0x0401F000);
-
     /* MMIO Memory */
     check_vm_extension(KVM_CAP_READONLY_MEM, "KVM_CAP_READONLY_MEM"); // This will cause a write to 0x10000000, to result in a KVM_EXIT_MMIO.
-    allocate_memory_to_vm(MEMORY_BLOCK_SIZE, 0x10000000, KVM_MEM_READONLY);
+    allocate_memory_to_vm_with_flags(0x1000, 0x10000000, KVM_MEM_READONLY);
+
+    /* Non-secure static SHM */
+    allocate_memory_to_vm(0x200000, 0x42000000);
 
     /* Create a virtual CPU and receive its file descriptor */
     snprintf(buffer, MAX_STRING_LENGTH, "Creating VCPU\n");
@@ -370,60 +418,6 @@ int kvm_test(AAssetManager *mgr) {
     if (ret < 0)
         return ret;
 
-    /* Repeatedly run code and handle VM exits. */
-    snprintf(buffer, MAX_STRING_LENGTH, "Running code\n");
-    output_text += buffer;
-    bool shut_down = false;
-    for (int i = 0; i < MAX_VM_RUNS && !shut_down; i++) {
-        snprintf(buffer, MAX_STRING_LENGTH, "\nKVM_RUN Loop %d:\n", i + 1);
-        output_text += buffer;
-        ret = ioctl(vcpufd, KVM_RUN, NULL);
-        if (ret < 0) {
-            snprintf(buffer, MAX_STRING_LENGTH, "System call 'KVM_RUN' failed: %d - %s\n",
-                     errno, strerror(errno));
-            output_text += buffer;
-            snprintf(buffer, MAX_STRING_LENGTH,
-                     "Error Numbers: EINTR=%d; ENOEXEC=%d; ENOSYS=%d; EPERM=%d\n", EINTR,
-                     ENOEXEC, ENOSYS, EPERM);
-            output_text += buffer;
-            return ret;
-        }
-
-        switch (run->exit_reason) {
-            case KVM_EXIT_MMIO:
-                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_MMIO\n");
-                output_text += buffer;
-                mmio_exit_handler();
-                break;
-            case KVM_EXIT_SYSTEM_EVENT:
-                // This happens when the VCPU has done a HVC based PSCI call.
-                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_SYSTEM_EVENT\n");
-                output_text += buffer;
-                print_system_event_exit_reason();
-                shut_down = true;
-                break;
-            case KVM_EXIT_INTR:
-                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_INTR\n");
-                output_text += buffer;
-                break;
-            case KVM_EXIT_FAIL_ENTRY:
-                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_FAIL_ENTRY\n");
-                output_text += buffer;
-                break;
-            case KVM_EXIT_INTERNAL_ERROR:
-                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: KVM_EXIT_INTERNAL_ERROR\n");
-                output_text += buffer;
-                break;
-            default:
-                snprintf(buffer, MAX_STRING_LENGTH, "Exit Reason: other\n");
-                output_text += buffer;
-        }
-    }
-
-    close_fd(vcpufd);
-    close_fd(vmfd);
-    close_fd(kvm);
-
     return 0;
 }
 
@@ -436,16 +430,17 @@ Java_edu_hm_karbaumer_lenz_android_1kvm_1hello_1world_MainActivity_kvmHelloWorld
 
     kvm_test(mgr);
 
-    string text;
-    for (int i = 0; i < mmio_buffer_index; i++) {
-        text += mmio_buffer[i];
-    }
-    return env->NewStringUTF(text.c_str());
+    const char *str = output_text.c_str();
+    return env->NewStringUTF(str);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_edu_hm_karbaumer_lenz_android_1kvm_1hello_1world_MainActivity_getKvmHelloWorldLog(
         JNIEnv *env,
         jobject thiz) {
-    return env->NewStringUTF(output_text.c_str());
+    
+    do_kvm_run();
+
+    const char *str = output_text.c_str();
+    return env->NewStringUTF(str);
 }
