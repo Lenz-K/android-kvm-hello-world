@@ -7,7 +7,7 @@ android {
     compileSdk 31
 
     defaultConfig {
-        applicationId "edu.hm.karbaumer.lenz.android_kvm_hello_world"
+        applicationId "edu.hm.karbaumer.lenz.android_kvm_hello_world2"
         minSdk 30
         targetSdk 31
         versionCode 1
