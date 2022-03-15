@@ -7,9 +7,9 @@ See the last section of this file for more information.
 
 # About
 
-This app runs a [c++ program](https://github.com/Lenz-K/android-kvm-hello-world/blob/main/app/src/main/cpp/kvm_test.cpp), 
+This app runs a [c++ program](https://github.com/Lenz-K/android-kvm-hello-world/blob/optee/app/src/main/cpp/kvm_test.cpp),
 that sets up a KVM AArch64 VM and runs a OP-TEE OS build in the VM.
-The OP-TEE OS is included as an ELF file [tee.elf](https://github.com/Lenz-K/android-kvm-hello-world/tree/main/app/src/main/assets/bin).
+The OP-TEE OS is included as an ELF file [tee.elf](https://github.com/Lenz-K/android-kvm-hello-world/tree/optee/app/src/main/assets/bin).
 It is developed in another [repository](https://github.com/Lenz-K/optee_os_kvm/tree/plat-kvm).
 
 The app contains a `RUN` button. When it is clicked a world switch to the VM is performed.
